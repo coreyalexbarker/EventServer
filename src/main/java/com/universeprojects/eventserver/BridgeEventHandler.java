@@ -81,7 +81,7 @@ public class BridgeEventHandler implements Handler<BridgeEvent> {
                 if (userId != null) {
                     log.info("Socket is already authenticated!");
                     be.complete(true);
-                    eventServerVerticle.sendSavedMessagesBlocking(savedMessagesBody);
+                    eventServerVerticle.sendSavedMessages(savedMessagesBody);
                 } else {
                     // Uses the Headers sent with the register request for authentication
                     // Specifically it looks for Auth-Token
@@ -94,7 +94,7 @@ public class BridgeEventHandler implements Handler<BridgeEvent> {
                             sharedDataService.getSocketMap().put(be.socket().writeHandlerID(), user.getString("accountId"));
                             log.info(be.socket().writeHandlerID());
                             be.complete(true);
-                            eventServerVerticle.sendSavedMessagesBlocking(savedMessagesBody);
+                            eventServerVerticle.sendSavedMessages(savedMessagesBody);
                         } else {
                             log.info("Unable to authenticate", res.cause());
                             be.complete(false);

@@ -78,13 +78,6 @@ public class EventServerVerticle extends AbstractVerticle {
         server.requestHandler(router::accept).listen(6969, "0.0.0.0");
     }
 
-    public void sendSavedMessagesBlocking(JsonObject body) {
-        vertx.executeBlocking((future) -> {
-            sendSavedMessages(body);
-            future.complete();
-        }, (result) -> {});
-    }
-
     public void sendSavedMessages(JsonObject body) {
         log.info(body.encode());
         String socketId = body.getString("socketId");
