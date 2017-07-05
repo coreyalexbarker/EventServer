@@ -67,13 +67,13 @@ public class EventServerVerticle extends AbstractVerticle {
             bridgeOpts.addOutboundPermitted(outboundPermitted);
         }
 
-        SockJSHandler ebusSockJSHandler = SockJSHandler.create(vertx);
+        SockJSHandler eventBusSockJSHandler = SockJSHandler.create(vertx);
         bridgeEventHandler = new BridgeEventHandler(this);
-        ebusSockJSHandler.bridge(bridgeOpts, bridgeEventHandler);
+        eventBusSockJSHandler.bridge(bridgeOpts, bridgeEventHandler);
 
         //AuthHandler basicAuthHandler = BasicAuthHandler.create(authProvider);
         //router.route("/eventbus/*").handler(basicAuthHandler);
-        router.route("/eventbus/*").handler(ebusSockJSHandler);
+        router.route("/eventbus/*").handler(eventBusSockJSHandler);
 
         server.requestHandler(router::accept).listen(6969, "0.0.0.0");
     }
@@ -140,7 +140,9 @@ public class EventServerVerticle extends AbstractVerticle {
 
     public void authenticate(JsonObject authInfo, Handler<AsyncResult<JsonObject>> resultHandler) {
         if (authInfo.containsKey("Auth-Token")) {
-            HttpClientRequest request = client.post("/eventserver?type=auth", response -> {
+            HttpClientRequest request = client.post("/eventserver?type=auth");
+            //noinspection CodeBlock2Expr
+            request.handler( response -> {
                 response.bodyHandler(respBody -> {
                     try {
                         JsonObject body = respBody.toJsonObject();
@@ -178,7 +180,9 @@ public class EventServerVerticle extends AbstractVerticle {
     }
 
     private void formatChatMsg(JsonObject reqBody, Handler<AsyncResult<JsonObject>> resultHandler) {
-        HttpClientRequest request = client.post("/eventserver?type=message", response -> {
+        HttpClientRequest request = client.post("/eventserver?type=message");
+        //noinspection CodeBlock2Expr
+        request.handler(response -> {
             response.bodyHandler(respBody -> {
                 try {
                     JsonObject body = respBody.toJsonObject();
@@ -270,8 +274,9 @@ public class EventServerVerticle extends AbstractVerticle {
                     return;
                 }
                 String sender, receiver;
-                sender = id.split("/")[1] + "#private";
-                receiver = id.split("/")[0] + "#private";
+                final String[] splitId = id.split("/");
+                sender = splitId[1] + "#private";
+                receiver = splitId[0] + "#private";
                 log.info("Sender/Receiver - " + sender + "/" + receiver);
                 // Save message to sender
                 msgs = sharedDataService.getMessageMap().get(sender);
