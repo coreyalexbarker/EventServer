@@ -22,8 +22,10 @@ dependencies {
 
 shadowJar {
   classifier = 'fat'
+  //noinspection GroovyAssignabilityCheck
   manifest {
-    attributes 'Main-Verticle': 'com.universeprojects.eventserver.MainVerticle'
+    //noinspection GroovyAssignabilityCheck
+    attributes 'Main-Verticle': 'com.universeprojects.eventserver.EventServerVerticle'
   }
   mergeServiceFiles {
     include 'META-INF/services/io.vertx.core.spi.VerticleFactory'

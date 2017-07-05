@@ -2,7 +2,7 @@ This project is an Event server designed to be deployed to a Google Compute Inst
 websocket connections.
 
 You can run it directly in your IDE by creating a run configuration that uses the main class `io.vertx.core.Launcher`
-and passes in the arguments `run com.universeprojects.eventserver.MainVerticle`.
+and passes in the arguments `run com.universeprojects.eventserver.EventServerVerticle`.
 
 The build.gradle uses the Gradle shadowJar plugin to assemble the application and all it's dependencies into a single "fat" jar.
 
