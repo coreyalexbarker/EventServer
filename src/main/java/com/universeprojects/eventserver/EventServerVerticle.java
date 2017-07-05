@@ -33,10 +33,23 @@ public class EventServerVerticle extends AbstractVerticle {
     private BridgeEventHandler bridgeEventHandler;
     public SharedDataService sharedDataService;
 
+    private String getConfig(String key, String defaultValue) {
+        String value = System.getProperty(key);
+        if(value != null) return value;
+        value = System.getenv(key);
+        if(value != null) return value;
+        return defaultValue;
+    }
+
     @Override
     public void start() {
+        String host = getConfig("remote.host", "test-dot-playinitium.appspot.com");
+        int port = Integer.parseInt(getConfig("remote.port", "443"));
+        boolean ssl = Boolean.parseBoolean(getConfig("remote.ssl", "true"));
         HttpClientOptions options = new HttpClientOptions().
-                setDefaultHost("test-dot-playinitium.appspot.com").setDefaultPort(443).setSsl(true);
+                setDefaultHost(host).
+                setDefaultPort(port).
+                setSsl(ssl);
         client = vertx.createHttpClient(options);
         HttpServer server = vertx.createHttpServer();
         Router router = Router.router(vertx);
