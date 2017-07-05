@@ -154,7 +154,7 @@ public class EventServerVerticle extends AbstractVerticle {
                             resultHandler.handle(Future.failedFuture("Auth-Token was rejected by the server"));
                         }
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        log.error("Bad response from server for auth", e);
                         resultHandler.handle(Future.failedFuture("Invalid response from server: " + respBody.toString()));
                     }
                 });
@@ -188,7 +188,7 @@ public class EventServerVerticle extends AbstractVerticle {
                         resultHandler.handle(Future.failedFuture("Chat Message was rejected by server"));
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    log.error("Bad response from game-server for format", e);
                 }
             });
         });
