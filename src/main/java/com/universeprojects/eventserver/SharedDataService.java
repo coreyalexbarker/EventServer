@@ -27,7 +27,6 @@ public class SharedDataService {
         return sd.<String, String>getLocalMap("parties");
     }
 
-
     public LocalMap<String, String> getSocketMap() {
         return sd.<String, String>getLocalMap("sockets");
     }

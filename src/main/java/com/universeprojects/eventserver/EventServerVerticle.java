@@ -1,6 +1,5 @@
 package com.universeprojects.eventserver;
 
-
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
@@ -13,6 +12,7 @@ import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpServer;
+import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
@@ -20,6 +20,7 @@ import io.vertx.core.logging.LoggerFactory;
 import io.vertx.ext.web.Cookie;
 import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
+import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.sockjs.BridgeEvent;
 import io.vertx.ext.web.handler.sockjs.BridgeOptions;
 import io.vertx.ext.web.handler.sockjs.PermittedOptions;
@@ -44,21 +45,82 @@ public class EventServerVerticle extends AbstractVerticle {
     @Override
     public void start() {
         String host = getConfig("remote.host", "test-dot-playinitium.appspot.com");
-        int port = Integer.parseInt(getConfig("remote.port", "443"));
-        boolean ssl = Boolean.parseBoolean(getConfig("remote.ssl", "true"));
+        // TODO: change port back to 443
+        int port = Integer.parseInt(getConfig("remote.port", "1234"));
+        // TODO: change boolean back to true
+        boolean ssl = Boolean.parseBoolean(getConfig("remote.ssl", "false"));
         HttpClientOptions options = new HttpClientOptions().
                 setDefaultHost(host).
-                setDefaultPort(port).
-                setSsl(ssl);
+                setDefaultPort(port);
+                //.setSsl(ssl);
+        // TODO: change this ^ back after testing
         client = vertx.createHttpClient(options);
         HttpServer server = vertx.createHttpServer();
         Router router = Router.router(vertx);
+
+        // So we can retrieve body of message directly
+        router.route().handler(BodyHandler.create());
 
         Route indexRoute = router.route("/");
         indexRoute.handler(routingContext -> {
             routingContext.addCookie(Cookie.cookie("test", "Hello!"));
             routingContext.response().sendFile("index.html");
         });
+
+        Route updateRoute = router.route("/updateplayer");
+        updateRoute.handler((routingContext -> {
+            String appId = routingContext.request().getHeader("ES-Shared-Key");
+            HttpServerResponse response = routingContext.response();
+            if (isTrusted(appId))
+            {
+                // TODO: remove next line
+                log.info("Shared Key: " + appId);
+                JsonObject player = routingContext.getBodyAsJson();
+
+                if (player != null) {
+                    updatePlayer(player, res -> {
+                        if (res.succeeded())
+                        {
+                            JsonObject body = new JsonObject().put("success", true);
+                            String raw = body.encode();
+                            response.putHeader("content-type", "application/json")
+                                    .putHeader("content-length", Integer.toString(raw.length()))
+                                    .write(raw)
+                                    .end();
+                            log.info("Update successful for player: " + player.getString("accountId"));
+                        }
+                        else
+                        {
+                            JsonObject body = new JsonObject().put("success", false);
+                            String raw = body.encode();
+                            response.putHeader("content-type", "application/json")
+                                    .putHeader("content-length", Integer.toString(raw.length()))
+                                    .write(raw)
+                                    .end();
+                            log.error("Update failed for player: " + player.getString("accountId"));
+                        }
+                    });
+                } else {
+                    JsonObject body = new JsonObject().put("success", false);
+                    String raw = body.encode();
+                    response.putHeader("content-type", "application/json")
+                            .putHeader("content-length", Integer.toString(raw.length()))
+                            .write(raw)
+                            .end();
+                    log.error("Player JsonObject cannot be null!");
+                }
+            }
+            else
+            {
+                JsonObject body = new JsonObject().put("success", false);
+                String raw = body.encode();
+                response.putHeader("content-type", "application/json")
+                        .putHeader("content-length", Integer.toString(raw.length()))
+                        .write(raw)
+                        .end();
+                log.error("ES Shared Key missing or invalid!");
+            }
+        }));
 
         eventBus = vertx.eventBus();
         sharedDataService = new SharedDataService(vertx.sharedData());
@@ -88,7 +150,13 @@ public class EventServerVerticle extends AbstractVerticle {
         //router.route("/eventbus/*").handler(basicAuthHandler);
         router.route("/eventbus/*").handler(eventBusSockJSHandler);
 
-        server.requestHandler(router::accept).listen(6969, "0.0.0.0");
+        server.requestHandler(router::accept).listen(6969, handler -> {
+            if (handler.succeeded()) {
+                log.info("Server running...");
+            } else {
+                log.error("Server failed to bind/start.");
+            }
+        });
     }
 
     public void sendSavedMessages(JsonObject body) {
@@ -156,30 +224,46 @@ public class EventServerVerticle extends AbstractVerticle {
             HttpClientRequest request = client.post("/eventserver?type=auth");
             //noinspection CodeBlock2Expr
             request.handler( response -> {
-                response.bodyHandler(respBody -> {
-                    try {
-                        JsonObject body = respBody.toJsonObject();
-                        if (body.getBoolean("success")) {
-                            String id = body.getString("accountId");
-                            sharedDataService.getLocationMap().put(id, body.getString("locationId"));
-                            sharedDataService.getGroupMap().put(id, body.getString("groupId"));
-                            sharedDataService.getPartyMap().put(id, body.getString("partyId"));
-                            resultHandler.handle(Future.succeededFuture(body));
-                        } else {
-                            resultHandler.handle(Future.failedFuture("Auth-Token was rejected by the server"));
+                if(response.statusCode() != 200)
+                {
+                    // Not differentiating between different http codes at the moment, but should probably at least
+                    // differentiate between the various ranges; 1xx, 2xx, 3xx, etc
+                    String errorMsg = "Bad http status code received when trying to authenticate: " + response.statusCode() + " - " + response.statusMessage();
+                    log.error(errorMsg);
+                    resultHandler.handle(Future.failedFuture(errorMsg));
+                }
+                else
+                {
+                    response.bodyHandler(respBody -> {
+                        try {
+                            JsonObject body = respBody.toJsonObject();
+                            if (body.getBoolean("success")) {
+                                updatePlayer(body, res -> {
+                                    if (res.succeeded()) {
+                                        log.info("Player auth and update succeeded!");
+                                        resultHandler.handle(Future.succeededFuture(body));
+                                    } else {
+                                        log.error("Player auth succeeded but update failed! Request: " + body.encode());
+                                        resultHandler.handle(Future.failedFuture("Player auth succeeded, but player update failed!"));
+                                    }
+                                });
+                            } else {
+                                log.error("Auth failed!");
+                                resultHandler.handle(Future.failedFuture("Auth-Token was rejected by the server"));
+                            }
+                        } catch (Exception e) {
+                            log.error("Bad response from server for auth", e);
+                            resultHandler.handle(Future.failedFuture("Invalid response from server: " + respBody.toString()));
                         }
-                    } catch (Exception e) {
-                        log.error("Bad response from server for auth", e);
-                        resultHandler.handle(Future.failedFuture("Invalid response from server: " + respBody.toString()));
-                    }
-                });
+                    });
+                }
+
             });
-            // TODO: handle http errors
             JsonObject reqBody = new JsonObject();
             reqBody.put("Auth-Token", authInfo.getString("Auth-Token"));
             request.exceptionHandler(err -> {
                 log.info("Recieved exception: " + err.getMessage());
-                resultHandler.handle(Future.failedFuture("Authentican Request failed"));
+                resultHandler.handle(Future.failedFuture("Authentication Request failed"));
             });
             request.putHeader("content-type", "application/json");
             String raw = reqBody.encode();
@@ -187,6 +271,7 @@ public class EventServerVerticle extends AbstractVerticle {
             request.write(raw);
             request.end();
         } else {
+            log.error("Auth token not provided!");
             resultHandler.handle(Future.failedFuture("Auth-Token was not provided"));
         }
 
@@ -196,20 +281,31 @@ public class EventServerVerticle extends AbstractVerticle {
         HttpClientRequest request = client.post("/eventserver?type=message");
         //noinspection CodeBlock2Expr
         request.handler(response -> {
-            response.bodyHandler(respBody -> {
-                try {
-                    JsonObject body = respBody.toJsonObject();
-                    if (body.getBoolean("success")) {
-                        resultHandler.handle(Future.succeededFuture(body));
-                    } else {
-                        resultHandler.handle(Future.failedFuture("Chat Message was rejected by server"));
+            if(response.statusCode() != 200)
+            {
+                // Not differentiating between different http codes at the moment, but should probably at least
+                // differentiate between the various ranges; 1xx, 2xx, 3xx, etc
+                String errorMsg = "Bad http status code received when trying to format message: " + response.statusCode() + " - " + response.statusMessage();
+                log.error(errorMsg);
+                resultHandler.handle(Future.failedFuture(errorMsg));
+            }
+            else
+            {
+                response.bodyHandler(respBody -> {
+                    try {
+                        JsonObject body = respBody.toJsonObject();
+                        if (body.getBoolean("success")) {
+                            resultHandler.handle(Future.succeededFuture(body));
+                        } else {
+                            resultHandler.handle(Future.failedFuture("Chat Message was rejected by server"));
+                        }
+                    } catch (Exception e) {
+                        log.error("Bad response from game-server for format", e);
+                        resultHandler.handle(Future.failedFuture("Problem encountered during Message Format Request"));
                     }
-                } catch (Exception e) {
-                    log.error("Bad response from game-server for format", e);
-                }
-            });
+                });
+            }
         });
-        // TODO: handle http errors
         request.exceptionHandler(err -> {
             log.info("Recieved exception: " + err.getMessage());
             resultHandler.handle(Future.failedFuture("Message Format Request failed"));
@@ -245,14 +341,11 @@ public class EventServerVerticle extends AbstractVerticle {
         }
     }
 
-    @SuppressWarnings("unused")
     private void publishSocketMessage(String address, String handlerId, JsonObject body) {
-        JsonObject message = new JsonObject().put("type", "rec");
-        message.put("address", address);
-        message.put("body", body);
-        Buffer buff = Buffer.buffer();
-        buff.appendString(message.encode());
-        eventBus.publish(handlerId, buff);
+        // Was duplicate code, now passthrough
+        JsonArray bodyArray = new JsonArray();
+        bodyArray.add(body);
+        publishSocketMessage(address, handlerId, bodyArray);
     }
 
     private void publishSocketMessage(String address, String handlerId, JsonArray body) {
@@ -327,6 +420,28 @@ public class EventServerVerticle extends AbstractVerticle {
                     msgs.remove(0);
                 }
                 sharedDataService.getMessageMap().put(id, msgs);
+        }
+    }
+
+    // Used to check appId parameter that's injected by Google
+    private boolean isTrusted(String appId) {
+        if (appId != null && appId.equals("qwertyasdfghzxcvbn"))
+            return true;
+        return false;
+    }
+
+    private void updatePlayer(JsonObject body, Handler<AsyncResult<JsonObject>> resultHandler) {
+        if (body == null)
+        {
+            resultHandler.handle(Future.failedFuture("Null player on update."));
+        }
+        else
+        {
+            String id = body.getString("accountId");
+            sharedDataService.getLocationMap().put(id, body.getString("locationId"));
+            sharedDataService.getGroupMap().put(id, body.getString("groupId"));
+            sharedDataService.getPartyMap().put(id, body.getString("partyId"));
+            resultHandler.handle(Future.succeededFuture(body));
         }
     }
 }
